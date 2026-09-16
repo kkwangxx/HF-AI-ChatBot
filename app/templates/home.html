@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>{{ app_title }} — 面向对话的 AI 工作台</title>
+  <meta name="description" content="{{ app_title }}：流式对话、多模型切换、Markdown 与代码高亮，帮你更快把问题聊清楚。">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/home.css">
+</head>
+<body>
+  <div class="noise" aria-hidden="true"></div>
+
+  <header class="nav">
+    <a class="nav-brand" href="/">
+      <span class="nav-mark" aria-hidden="true"></span>
+      <span>{{ app_title }}</span>
+    </a>
+    <nav class="nav-links" aria-label="主导航">
+      <a href="#features">能力</a>
+      <a href="#workflow">工作流</a>
+      <a href="/chat">打开聊天</a>
+    </nav>
+    <a class="nav-cta" href="/chat">开始对话</a>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="brand-line">{{ app_title }}</p>
+        <h1>把复杂问题，聊成清晰答案。</h1>
+        <p class="hero-lead">流式回复、多轮上下文、Markdown 与代码高亮。像 Cursor 一样专注，只为把对话本身做好。</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="/chat">开始使用</a>
+          <a class="btn btn-ghost" href="#features">了解能力</a>
+        </div>
+      </div>
+
+      <div class="hero-stage" aria-hidden="true">
+        <div class="hero-glow"></div>
+        <div class="product-frame">
+          <div class="product-top">
+            <span></span><span></span><span></span>
+            <em>{{ app_title }}</em>
+          </div>
+          <div class="product-body">
+            <aside class="product-side">
+              <div class="side-btn">＋ 新建聊天</div>
+              <div class="side-item active">Java 流式接口</div>
+              <div class="side-item">Redis 缓存方案</div>
+              <div class="side-item">部署检查清单</div>
+            </aside>
+            <div class="product-chat">
+              <div class="bubble user">帮我解释 SSE 流式输出怎么做？</div>
+              <div class="bubble ai">
+                <strong>可以用 StreamingResponse：</strong>
+                <pre><code>return StreamingResponse(
+  event_generator(),
+  media_type="text/event-stream",
+)</code></pre>
+                前端按行读取 <code>data:</code> 并追加到消息即可。
+              </div>
+              <div class="composer-fake">输入消息…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="features">
+      <div class="section-head">
+        <h2>为真实对话准备的能力</h2>
+        <p>不堆功能，只保留你会每天用到的那几件事。</p>
+      </div>
+      <div class="feature-rail">
+        <article>
+          <h3>流式输出</h3>
+          <p>字随模型生成而至，不用干等整段回复。</p>
+        </article>
+        <article>
+          <h3>多模型切换</h3>
+          <p>顶栏一键切换，沿用你在 CC Switch 配置的模型列表。</p>
+        </article>
+        <article>
+          <h3>可读代码块</h3>
+          <p>Markdown、表格、语法高亮与复制代码，开箱即用。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section workflow" id="workflow">
+      <div class="section-head">
+        <h2>三步进入状态</h2>
+        <p>从打开页面到得到答案，路径尽量短。</p>
+      </div>
+      <ol class="steps">
+        <li>
+          <span>01</span>
+          <h3>打开聊天</h3>
+          <p>进入工作台，新建或继续上次对话。</p>
+        </li>
+        <li>
+          <span>02</span>
+          <h3>选择模型</h3>
+          <p>按任务切换 Sonnet / Opus 等可用模型。</p>
+        </li>
+        <li>
+          <span>03</span>
+          <h3>边聊边看</h3>
+          <p>流式阅读、随时停止，上下文自动保留。</p>
+        </li>
+      </ol>
+    </section>
+
+    <section class="finale">
+      <h2>现在就开始一次更好的对话。</h2>
+      <p>本地持久化历史，密钥只留在后端。打开就能聊。</p>
+      <a class="btn btn-primary" href="/chat">进入 {{ app_title }}</a>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>{{ app_title }}</span>
+    <a href="/chat">聊天工作台</a>
+  </footer>
+
+  <script src="/static/js/home.js"></script>
+</body>
+</html>
