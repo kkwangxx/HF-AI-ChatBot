@@ -1,9 +1,16 @@
-"""从 CC Switch 当前 Claude 配置同步到项目 .env（脱敏日志）。"""
+"""从 CC Switch 当前 Claude 配置同步到项目 .env（脱敏日志）。
+
+只更新 AI_* 相关键，保留 .env 中已有的其他配置与注释。
+"""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+ENV_PATH = PROJECT_ROOT / ".env"
+CLAUDE_SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
 
 
 def mask(value: str) -> str:
@@ -36,11 +43,35 @@ def collect_models(env: dict) -> list[str]:
     return models
 
 
+def load_claude_env() -> dict:
+    """读取 CC Switch / Claude Code 的当前配置。"""
+    if not CLAUDE_SETTINGS_PATH.exists():
+        raise SystemExit(f"未找到 Claude 配置文件：{CLAUDE_SETTINGS_PATH}")
+    try:
+        settings = json.loads(CLAUDE_SETTINGS_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Claude 配置文件不是合法 JSON：{exc}") from exc
+    return settings.get("env") or {}
+
+
+def upsert_env(lines: list[str], updates: dict[str, str]) -> list[str]:
+    """原地替换已存在的键，其余键追加到末尾，保留注释与无关配置。"""
+    remaining = dict(updates)
+    result: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            key = stripped.split("=", 1)[0].strip()
+            if key in remaining:
+                result.append(f"{key}={remaining.pop(key)}")
+                continue
+        result.append(line)
+    result.extend(f"{key}={value}" for key, value in remaining.items())
+    return result
+
+
 def main() -> None:
-    settings = json.loads(
-        (Path.home() / ".claude" / "settings.json").read_text(encoding="utf-8")
-    )
-    env = settings.get("env") or {}
+    env = load_claude_env()
     base = str(env.get("ANTHROPIC_BASE_URL", "")).rstrip("/")
     key = str(env.get("ANTHROPIC_AUTH_TOKEN") or env.get("ANTHROPIC_API_KEY") or "")
     model = str(env.get("ANTHROPIC_MODEL") or "claude-sonnet-5")
@@ -49,28 +80,28 @@ def main() -> None:
         models.insert(0, model)
 
     if not base or not key:
-        raise SystemExit("未在 ~/.claude/settings.json 中找到可用的 Base URL / API Key")
+        raise SystemExit(f"未在 {CLAUDE_SETTINGS_PATH} 中找到可用的 Base URL / API Key")
 
-    content = "\n".join(
-        [
-            f"AI_API_BASE_URL={base}",
-            f"AI_API_KEY={key}",
-            f"AI_MODEL={model}",
-            f"AI_MODELS={','.join(models)}",
-            "AI_API_PROTOCOL=anthropic",
-            "AI_MAX_TOKENS=4096",
-            "APP_TITLE=AI Chat Bot",
-            "",
-        ]
-    )
-    env_path = Path(r"D:\Project\AI\chat_bot\.env")
-    env_path.write_text(content, encoding="utf-8", newline="\n")
-    print(f"synced -> {env_path}")
+    updates = {
+        "AI_API_BASE_URL": base,
+        "AI_API_KEY": key,
+        "AI_MODEL": model,
+        "AI_MODELS": ",".join(models),
+        "AI_API_PROTOCOL": "anthropic",
+    }
+
+    existing = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
+    merged = upsert_env(existing, updates)
+    ENV_PATH.write_text("\n".join(merged) + "\n", encoding="utf-8", newline="\n")
+
+    print(f"synced -> {ENV_PATH}")
     print(f"base={base}")
     print(f"model={model}")
     print(f"models={models}")
     print(f"key={mask(key)}")
     print("protocol=anthropic")
+    if not existing:
+        print("提示：.env 原本不存在，登录配置将使用默认值（admin / admin）")
 
 
 if __name__ == "__main__":

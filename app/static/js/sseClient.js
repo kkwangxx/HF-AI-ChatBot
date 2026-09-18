@@ -44,7 +44,7 @@
         /* ignore */
       }
       onError(mapHttpError(response.status, detail));
-      return { aborted: false, error: true };
+      return { aborted: false, error: true, status: response.status };
     }
 
     if (!response.body) {

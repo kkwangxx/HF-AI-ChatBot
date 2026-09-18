@@ -1,9 +1,14 @@
 """应用配置，通过环境变量 / .env 加载。"""
 
+import logging
+import secrets
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -25,6 +30,30 @@ class Settings(BaseSettings):
     ai_max_tokens: int = 4096
     ai_timeout_seconds: float = 120.0
     app_title: str = "AI Chat Bot"
+
+    # 默认只监听本机，避免把上游 API Key 暴露到公网
+    app_host: str = "127.0.0.1"
+    app_port: int = 8000
+
+    # 登录鉴权（无数据库，凭据来自配置）
+    auth_enabled: bool = True
+    auth_username: str = "admin"
+    auth_password: str = "admin"
+    # 为空时启动自动生成临时密钥，重启后登录态失效
+    auth_secret_key: str = ""
+    auth_session_max_age_seconds: int = 7 * 24 * 3600
+    # 通过 HTTPS 部署时应设为 true
+    auth_cookie_secure: bool = False
+
+    @model_validator(mode="after")
+    def ensure_auth_secret_key(self) -> "Settings":
+        """未显式配置签名密钥时生成临时密钥，避免使用固定弱密钥。"""
+        if self.auth_enabled and not self.auth_secret_key.strip():
+            self.auth_secret_key = secrets.token_urlsafe(32)
+            logger.warning(
+                "未配置 AUTH_SECRET_KEY，已生成临时签名密钥，服务重启后需要重新登录。"
+            )
+        return self
 
     def model_list(self) -> list[str]:
         """解析可选模型，确保默认模型在列表中。"""

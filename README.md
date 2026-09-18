@@ -20,8 +20,11 @@ python -m venv .venv
 # source .venv/bin/activate
 
 pip install -r requirements.txt
+# 需要跑测试 / 代码检查时：pip install -e ".[dev]"
 copy .env.example .env   # Linux: cp .env.example .env
 ```
+
+> 依赖清单以 `pyproject.toml` 的 `[project].dependencies` 为唯一来源，`requirements.txt` 仅指向本项目（`-e .`）。
 
 编辑 `.env`：
 
@@ -38,6 +41,8 @@ AI_API_PROTOCOL=anthropic
 ```bash
 python scripts/sync_cc_switch_env.py
 ```
+
+> 该脚本只更新项目根 `.env` 中的 `AI_*` 键，保留其余配置与注释，不会覆盖 `AUTH_*`。
 
 > Claude Code 走 Anthropic `/v1/messages`，因此 `AI_API_PROTOCOL` 需设为 `anthropic`。  
 > 若你的供应商支持 OpenAI Chat Completions，可改为 `openai`。  
@@ -56,6 +61,29 @@ python -m app.main
 - 介绍页：<http://localhost:8000>
 - 聊天页：<http://localhost:8000/chat>
 
+## 登录与安全
+
+聊天页与所有 `/api/*` 接口需要登录，默认账号 `admin / admin`，在 `.env` 中修改：
+
+```env
+AUTH_ENABLED=true
+AUTH_USERNAME=admin
+AUTH_PASSWORD=admin
+AUTH_SECRET_KEY=            # 留空则每次启动随机生成，重启后需重新登录
+AUTH_COOKIE_SECURE=false    # 通过 HTTPS 部署时设为 true
+```
+
+登录态由 HMAC 签名的 HttpOnly Cookie 承载，无数据库依赖；修改 `AUTH_USERNAME` 或 `AUTH_SECRET_KEY` 会立即让历史会话失效。
+
+服务默认只监听 `127.0.0.1`。对外提供服务前请务必先设置 `AUTH_SECRET_KEY` 与强密码，再改 `APP_HOST`：
+
+```env
+APP_HOST=0.0.0.0
+APP_PORT=8000
+```
+
+> 本服务代理你的上游 API Key。公网暴露且未设强密码时，Key 等同于对外开放。
+
 ## 本地 Mock AI（可选）
 
 若暂时没有真实 AI 服务，可另开终端启动：
@@ -70,29 +98,47 @@ python scripts/mock_ai.py
 
 ```text
 app/
-├── main.py                 # FastAPI 入口，渲染首页
+├── main.py                 # FastAPI 入口、登录路由、鉴权中间件
 ├── config.py               # pydantic-settings 配置
+├── security.py             # 凭据校验与签名会话 Cookie
 ├── api/chat.py             # POST /api/chat（SSE）
 ├── services/ai_client.py   # AI Client（唯一上游调用入口）
 ├── models/chat.py          # 请求模型
-├── templates/index.html
+├── templates/
+│   ├── home.html
+│   ├── index.html
+│   └── login.html
 └── static/
-    ├── css/chat.css
+    ├── css/{chat,home,login}.css
     └── js/
         ├── chatStorage.js  # localStorage 抽象
         ├── sseClient.js    # SSE 解析
         ├── markdown.js
         └── app.js
+tests/                      # 配置解析、协议转换、登录流程
+```
+
+## 开发与测试
+
+```bash
+pip install -e ".[dev]"
+pytest
+flake8 .
 ```
 
 ## 接口
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/` | 产品介绍落地页 |
-| GET | `/chat` | 聊天工作台 |
-| POST | `/api/chat` | 流式对话（`text/event-stream`） |
-| GET | `/api/models` | 可选模型列表 |
+| 方法 | 路径 | 说明 | 需登录 |
+|------|------|------|--------|
+| GET | `/` | 产品介绍落地页 | 否 |
+| GET | `/login` | 登录表单 | 否 |
+| POST | `/login` | 提交凭据，下发会话 Cookie | 否 |
+| POST | `/logout` | 清除会话 Cookie | 否 |
+| GET | `/chat` | 聊天工作台 | 是 |
+| POST | `/api/chat` | 流式对话（`text/event-stream`） | 是 |
+| GET | `/api/models` | 可选模型列表 | 是 |
+
+未登录访问页面会重定向到 `/login`，访问 `/api/*` 返回 `401`，前端收到 401 后自动跳转登录页。
 
 请求体：
 

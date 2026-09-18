@@ -1,7 +1,11 @@
 # 环境与密钥
 .env
+.env.*
+!.env.example
 .venv/
 venv/
+*.pem
+*.key
 
 # Python
 __pycache__/
@@ -10,16 +14,30 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.tox/
 *.egg-info/
 dist/
 build/
+.coverage
+.coverage.*
+htmlcov/
+
+# 本地数据文件（当前无数据库，预留）
+*.db
+*.sqlite
+*.sqlite3
 
 # IDE / OS
 .idea/
 .vscode/
+.vs/
 .DS_Store
 Thumbs.db
+ehthumbs.db
+desktop.ini
 *.log
+*.bak
+*.tmp
 
 # 本地模板克隆与临时文件
 _template_one_chat/

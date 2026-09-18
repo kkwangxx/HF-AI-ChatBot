@@ -49,6 +49,13 @@
     setTimeout(() => el.classList.remove("show"), 2200);
   }
 
+  function handleUnauthorized() {
+    toast("登录已失效，正在跳转登录页…");
+    setTimeout(() => {
+      window.location.href = "/login?next=/chat";
+    }, 1200);
+  }
+
   function persist() {
     try {
       ChatStorage.saveAll(conversations, activeId);
@@ -118,6 +125,10 @@
   async function loadModels() {
     try {
       const resp = await fetch(MODELS_URL);
+      if (resp.status === 401) {
+        handleUnauthorized();
+        return;
+      }
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status}`);
       }
@@ -578,6 +589,10 @@
     setGeneratingUi(false);
     renderChats();
     renderMessages();
+
+    if (result.status === 401) {
+      handleUnauthorized();
+    }
   }
 
   function stopGeneration() {

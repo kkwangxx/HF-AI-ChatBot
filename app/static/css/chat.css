@@ -863,3 +863,9 @@ button {
     display: block;
   }
 }
+
+/* 顶栏退出登录按钮容器，避免 form 破坏 flex 布局 */
+.logout-form {
+  display: flex;
+  margin: 0;
+}

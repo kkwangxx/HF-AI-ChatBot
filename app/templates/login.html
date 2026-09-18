@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>登录 — {{ app_title }}</title>
+  <link rel="stylesheet" href="/static/css/login.css">
+</head>
+<body>
+  <main class="login-wrap">
+    <form class="login-card" method="post" action="/login" autocomplete="on">
+      <div class="login-brand">
+        <span class="login-mark" aria-hidden="true"></span>
+        <span>{{ app_title }}</span>
+      </div>
+      <h1>登录后继续</h1>
+      <p class="login-lead">该服务代理你的 AI 密钥，需登录后使用。</p>
+
+      {% if error %}
+      <div class="login-error" role="alert">{{ error }}</div>
+      {% endif %}
+
+      <input type="hidden" name="next" value="{{ next_url }}">
+
+      <label for="username">用户名</label>
+      <input
+        id="username"
+        name="username"
+        type="text"
+        value="{{ username }}"
+        autocomplete="username"
+        required
+        autofocus
+      >
+
+      <label for="password">密码</label>
+      <input
+        id="password"
+        name="password"
+        type="password"
+        autocomplete="current-password"
+        required
+      >
+
+      <button class="login-submit" type="submit">登录</button>
+      <a class="login-back" href="/">返回介绍页</a>
+    </form>
+  </main>
+</body>
+</html>

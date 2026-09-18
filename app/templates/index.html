@@ -30,6 +30,10 @@
     <symbol id="i-clip" viewBox="0 0 24 24">
       <path d="m21 11-8.5 8.5a6 6 0 0 1-8.5-8.5l9-9a4 4 0 0 1 5.7 5.7l-9 9a2 2 0 1 1-2.8-2.8L15 5.8"/>
     </symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+      <path d="m16 17 5-5-5-5M21 12H9"/>
+    </symbol>
   </svg>
 
   <div class="backdrop" id="backdrop"></div>
@@ -63,6 +67,13 @@
         <button class="ibtn" id="themeBtn" title="切换主题" aria-label="切换主题">
           <svg class="icon"><use href="#i-sun"/></svg>
         </button>
+        {% if auth_enabled %}
+        <form class="logout-form" method="post" action="/logout">
+          <button class="ibtn" type="submit" title="退出登录" aria-label="退出登录">
+            <svg class="icon"><use href="#i-logout"/></svg>
+          </button>
+        </form>
+        {% endif %}
       </header>
 
       <section class="messages" id="messages" aria-live="polite"></section>
