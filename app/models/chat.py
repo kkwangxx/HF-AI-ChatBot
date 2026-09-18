@@ -72,11 +72,35 @@ class ChatMessage(BaseModel):
         return self
 
 
+class PageContext(BaseModel):
+    """宿主页面位置。字段都可选，便于别的项目按自己的信息填。"""
+
+    module: str | None = None
+    menu: str | None = None
+    page: str | None = None
+
+
+class BusinessContext(BaseModel):
+    """当前业务对象。"""
+
+    type: str | None = None
+    id: str | None = None
+    code: str | None = None
+
+
+class ChatContext(BaseModel):
+    """宿主集成时附带的上下文。为空时 Agent 仍可回答通用问题。"""
+
+    page: PageContext | None = None
+    business: BusinessContext | None = None
+
+
 class ChatRequest(BaseModel):
-    """前端发起的聊天请求。"""
+    """前端发起的聊天请求。context 预留给宿主系统传入当前页面。"""
 
     messages: list[ChatMessage] = Field(..., min_length=1)
     model: str | None = Field(default=None, description="可选，覆盖默认模型")
+    context: ChatContext | None = None
 
 
 class ModelsResponse(BaseModel):

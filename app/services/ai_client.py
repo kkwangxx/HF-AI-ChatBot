@@ -8,6 +8,12 @@ from typing import Any
 
 import httpx
 
+from app.agent.parse import (
+    AnthropicToolStreamParser,
+    OpenAIToolStreamParser,
+    StreamParseError,
+)
+from app.agent.types import ToolSpec
 from app.config import Settings
 
 
@@ -367,3 +373,199 @@ class AIClient:
             raise AIClientError(self._friendly_network_error(exc)) from exc
         except httpx.HTTPError as exc:
             raise AIClientError(self._friendly_network_error(exc)) from exc
+
+    async def stream_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        model: str | None,
+        tools: list[ToolSpec],
+    ) -> AsyncIterator[tuple[str, Any]]:
+        """流式产出 ('text', 片段)，结束时产出 ('done', tool_calls)。"""
+        resolved = self._resolve_model(model)
+        if self._protocol == "anthropic":
+            parser: OpenAIToolStreamParser | AnthropicToolStreamParser = (
+                AnthropicToolStreamParser()
+            )
+            url = f"{self._base_url}/v1/messages"
+            headers = self._anthropic_headers()
+            payload = self._anthropic_tool_payload(messages, resolved, tools)
+        else:
+            parser = OpenAIToolStreamParser()
+            url = f"{self._base_url}/v1/chat/completions"
+            headers = self._openai_headers()
+            payload = self._openai_tool_payload(messages, resolved, tools)
+
+        try:
+            async for data in self._iter_sse_data(url, headers, payload):
+                try:
+                    text = parser.feed(data)
+                except StreamParseError as exc:
+                    raise AIClientError(exc.message) from exc
+                if text:
+                    yield ("text", text)
+        except AIClientError:
+            raise
+        yield ("done", parser.finish())
+
+    def _openai_tool_payload(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        tools: list[ToolSpec],
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": self._agent_openai_messages(messages),
+            "stream": True,
+        }
+        if tools:
+            payload["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.parameters,
+                    },
+                }
+                for tool in tools
+            ]
+            payload["tool_choice"] = "auto"
+        return payload
+
+    def _anthropic_tool_payload(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        tools: list[ToolSpec],
+    ) -> dict[str, Any]:
+        system, converted = self._agent_anthropic_messages(messages)
+        if not converted:
+            raise AIClientError("消息列表为空，无法调用 AI。", status_code=400)
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": converted,
+            "max_tokens": self._max_tokens,
+            "stream": True,
+        }
+        if system:
+            payload["system"] = system
+        if tools:
+            payload["tools"] = [
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": tool.parameters,
+                }
+                for tool in tools
+            ]
+        return payload
+
+    def _agent_openai_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        pending: list[dict[str, Any]] = []
+        result: list[dict[str, Any]] = []
+        for message in messages:
+            role = message.get("role")
+            if role == "tool" or (role == "assistant" and message.get("tool_calls")):
+                if pending:
+                    result.extend(self._to_openai_messages(pending))
+                    pending = []
+                if role == "tool":
+                    result.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": message.get("tool_call_id"),
+                            "content": str(message.get("content") or ""),
+                        }
+                    )
+                else:
+                    result.append(self._openai_assistant_tool_message(message))
+                continue
+            pending.append(message)
+        if pending:
+            result.extend(self._to_openai_messages(pending))
+        return result
+
+    @staticmethod
+    def _openai_assistant_tool_message(message: dict[str, Any]) -> dict[str, Any]:
+        tool_calls = []
+        for call in message.get("tool_calls") or []:
+            arguments = call.get("arguments")
+            if not isinstance(arguments, str):
+                arguments = json.dumps(arguments or {}, ensure_ascii=False)
+            tool_calls.append(
+                {
+                    "id": call.get("id"),
+                    "type": "function",
+                    "function": {
+                        "name": call.get("name"),
+                        "arguments": arguments,
+                    },
+                }
+            )
+        return {
+            "role": "assistant",
+            "content": message.get("content") or "",
+            "tool_calls": tool_calls,
+        }
+
+    def _agent_anthropic_messages(
+        self,
+        messages: list[dict[str, Any]],
+    ) -> tuple[str | None, list[dict[str, Any]]]:
+        system_parts: list[str] = []
+        converted: list[dict[str, Any]] = []
+        tool_results: list[dict[str, Any]] = []
+
+        def flush_tool_results() -> None:
+            if tool_results:
+                converted.append({"role": "user", "content": list(tool_results)})
+                tool_results.clear()
+
+        for message in messages:
+            role = message.get("role")
+            if role == "system":
+                text = self._content_as_plain_text(message.get("content"))
+                if text:
+                    system_parts.append(text)
+                continue
+            if role == "tool":
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": message.get("tool_call_id"),
+                        "content": str(message.get("content") or ""),
+                    }
+                )
+                continue
+            flush_tool_results()
+            if role == "assistant" and message.get("tool_calls"):
+                blocks: list[dict[str, Any]] = []
+                content = message.get("content")
+                if isinstance(content, str) and content:
+                    blocks.append({"type": "text", "text": content})
+                for call in message.get("tool_calls") or []:
+                    blocks.append(
+                        {
+                            "type": "tool_use",
+                            "id": call.get("id"),
+                            "name": call.get("name"),
+                            "input": call.get("arguments") or {},
+                        }
+                    )
+                if blocks:
+                    converted.append({"role": "assistant", "content": blocks})
+                continue
+            if role == "user":
+                converted.append(
+                    {
+                        "role": "user",
+                        "content": self._to_anthropic_content(
+                            message.get("content"),
+                            role="user",
+                        ),
+                    }
+                )
+        flush_tool_results()
+        system = "\n\n".join(system_parts) if system_parts else None
+        return system, converted

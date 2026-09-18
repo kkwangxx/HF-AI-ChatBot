@@ -21,3 +21,11 @@ def test_model_list_prepends_default_when_absent() -> None:
 def test_model_list_falls_back_to_default_only() -> None:
     settings = build_settings(ai_model="a", ai_models="")
     assert settings.model_list() == ["a"]
+
+
+def test_project_roots_split_by_semicolon() -> None:
+    settings = build_settings(mom_projects="backend=D:/mom; ui=D:/mom-ui")
+    assert [(name, str(path).replace("\\", "/")) for name, path in settings.project_roots()] == [
+        ("backend", "D:/mom"),
+        ("ui", "D:/mom-ui"),
+    ]

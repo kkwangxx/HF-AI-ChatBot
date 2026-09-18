@@ -3,6 +3,7 @@
 import logging
 import secrets
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import model_validator
@@ -45,6 +46,18 @@ class Settings(BaseSettings):
     # 通过 HTTPS 部署时应设为 true
     auth_cookie_secure: bool = False
 
+    # Agent。未配置任何插件数据源时仍走原来的纯聊天流。
+    agent_enabled: bool = True
+    agent_max_rounds: int = 6
+    # 格式：标识=绝对路径，多个用分号分隔。例如 backend=D:/mom;ui=D:/mom-ui
+    mom_projects: str = ""
+    mom_knowledge_root: str = "mom_knowledge"
+    mom_db_host: str = ""
+    mom_db_port: int = 3306
+    mom_db_name: str = ""
+    mom_db_user: str = ""
+    mom_db_password: str = ""
+
     @model_validator(mode="after")
     def ensure_auth_secret_key(self) -> "Settings":
         """未显式配置签名密钥时生成临时密钥，避免使用固定弱密钥。"""
@@ -70,6 +83,37 @@ class Settings(BaseSettings):
         if not items and self.ai_model:
             items.append(self.ai_model)
         return items
+
+    def project_roots(self) -> list[tuple[str, Path]]:
+        """解析 MOM_PROJECTS。路径不存在时仍返回，由工具调用时给出明确错误。"""
+        items: list[tuple[str, Path]] = []
+        seen: set[str] = set()
+        for part in self.mom_projects.split(";"):
+            raw = part.strip()
+            if not raw:
+                continue
+            if "=" in raw:
+                name, path_text = raw.split("=", 1)
+                name = name.strip()
+                path_text = path_text.strip()
+            else:
+                path_text = raw
+                name = Path(path_text).name
+            if not name or not path_text or name in seen:
+                continue
+            seen.add(name)
+            items.append((name, Path(path_text)))
+        return items
+
+    def knowledge_root(self) -> Path:
+        return Path(self.mom_knowledge_root)
+
+    def db_configured(self) -> bool:
+        return bool(
+            self.mom_db_host.strip()
+            and self.mom_db_name.strip()
+            and self.mom_db_user.strip()
+        )
 
 
 @lru_cache

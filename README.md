@@ -84,6 +84,27 @@ APP_PORT=8000
 
 > 本服务代理你的上游 API Key。公网暴露且未设强密码时，Key 等同于对外开放。
 
+## MOM Agent
+
+配置了代码项目、知识库或数据库后，`POST /api/chat` 会先让模型决定是否调用工具，再把最终回答按原来的 SSE 推给页面。未配置时仍是纯聊天。
+
+```env
+AGENT_ENABLED=true
+MOM_PROJECTS=backend=D:/mom/server;ui=D:/mom/ui
+MOM_KNOWLEDGE_ROOT=mom_knowledge
+MOM_DB_HOST=
+MOM_DB_PORT=3306
+MOM_DB_NAME=
+MOM_DB_USER=
+MOM_DB_PASSWORD=
+```
+
+`MOM_PROJECTS` 用分号分隔，每项是 `标识=绝对路径`。换业务系统只改这里。数据库只允许 `SELECT`，服务端会再校验一次。业务文档放在 `mom_knowledge/`，写法见该目录的 README。
+
+宿主系统集成时，在原请求上增加可选 `context`（页面、业务对象）。不传也能聊。别的项目要加自己的工具，实现 `app/agent/registry.py` 里的插件接口，并在 `app/plugins/loader.py` 注册。
+
+完整步骤见 [docs/MOM接入说明.md](docs/MOM接入说明.md)。
+
 ## 本地 Mock AI（可选）
 
 若暂时没有真实 AI 服务，可另开终端启动：
@@ -102,6 +123,8 @@ app/
 ├── config.py               # pydantic-settings 配置
 ├── security.py             # 凭据校验与签名会话 Cookie
 ├── api/chat.py             # POST /api/chat（SSE）
+├── agent/                  # 工具循环，不绑定具体业务系统
+├── plugins/mom/            # MOM 插件：知识、代码、只读 SQL
 ├── services/ai_client.py   # AI Client（唯一上游调用入口）
 ├── models/chat.py          # 请求模型
 ├── templates/
