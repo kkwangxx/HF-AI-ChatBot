@@ -73,7 +73,31 @@ AUTH_SECRET_KEY=            # 留空则每次启动随机生成，重启后需�
 AUTH_COOKIE_SECURE=false    # 通过 HTTPS 部署时设为 true
 ```
 
-登录态由 HMAC 签名的 HttpOnly Cookie 承载，无数据库依赖；修改 `AUTH_USERNAME` 或 `AUTH_SECRET_KEY` 会立即让历史会话失效。
+登录态由 HMAC 签名的 HttpOnly Cookie 承载，无数据库依赖。本地账号与 Google / GitHub 可并存：本地登录写入 `AUTH_USERNAME`；三方登录写入 `google/邮箱` 或 `github/用户名`。
+
+### Google / GitHub 三方登录
+
+1. 在 Google Cloud Console / GitHub Developer Settings 创建 OAuth 应用，回调地址分别填：
+
+```text
+http://127.0.0.1:8000/auth/google/callback
+http://127.0.0.1:8000/auth/github/callback
+```
+
+2. 写入 `.env`（成对配齐后，登录页才会出现对应按钮）：
+
+```env
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+OAUTH_PUBLIC_BASE_URL=http://127.0.0.1:8000
+AUTH_LOCAL_ENABLED=true
+```
+
+3. 打开 `/login`。已配置的提供商会显示为按钮；只想用三方登录时设 `AUTH_LOCAL_ENABLED=false`。
+
+微信、QQ 等后续可按同样模式扩展，当前未接入。
 
 服务默认只监听 `127.0.0.1`。对外提供服务前请务必先设置 `AUTH_SECRET_KEY` 与强密码，再改 `APP_HOST`：
 

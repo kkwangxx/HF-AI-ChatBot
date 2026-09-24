@@ -45,6 +45,16 @@ class Settings(BaseSettings):
     auth_session_max_age_seconds: int = 7 * 24 * 3600
     # 通过 HTTPS 部署时应设为 true
     auth_cookie_secure: bool = False
+    # 是否保留本地用户名密码表单（与三方登录可并存）
+    auth_local_enabled: bool = True
+
+    # 三方 OAuth。Client ID + Secret 都配齐后，登录页才会显示对应按钮。
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    github_client_id: str = ""
+    github_client_secret: str = ""
+    # 留空则按当前请求域名拼回调；生产环境建议写成公网地址
+    oauth_public_base_url: str = ""
 
     # Agent。未配置任何插件数据源时仍走原来的纯聊天流。
     agent_enabled: bool = True

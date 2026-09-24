@@ -32,7 +32,7 @@ MOM_DB_PASSWORD=
 
 ### 2.1 先登录
 
-`/chat` 和全部 `/api/*` 需要登录。默认账号在 `.env` 的 `AUTH_USERNAME` / `AUTH_PASSWORD`，初始值为 `admin / admin`。
+`/chat` 和全部 `/api/*` 需要登录。默认支持本地账号（`.env` 的 `AUTH_USERNAME` / `AUTH_PASSWORD`，初始 `admin / admin`），也可配置 Google / GitHub OAuth（见 README）。
 
 ```http
 POST /login
@@ -41,7 +41,7 @@ Content-Type: application/x-www-form-urlencoded
 username=admin&password=admin&next=/chat
 ```
 
-成功返回 `303`，并写入 HttpOnly Cookie `chat_session`。之后请求都带上这个 Cookie。
+成功返回 `303`，并写入 HttpOnly Cookie `chat_session`。之后请求都带上这个 Cookie。三方登录走 `GET /auth/google/login` 或 `GET /auth/github/login`，回调后同样写入 `chat_session`。
 
 未登录时：
 

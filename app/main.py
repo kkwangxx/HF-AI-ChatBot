@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -14,11 +15,23 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.api.chat import router as chat_router
+from app.auth.oauth import (
+    OAuthError,
+    build_authorize_url,
+    build_callback_url,
+    exchange_code_for_user,
+    get_provider,
+    list_ready_providers,
+    provider_ready,
+)
 from app.config import get_settings
 from app.security import (
+    OAUTH_STATE_COOKIE_NAME,
     SESSION_COOKIE_NAME,
+    create_oauth_state,
     create_session_token,
     verify_credentials,
+    verify_oauth_state,
     verify_session_token,
 )
 
@@ -32,11 +45,20 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 settings = get_settings()
 
-# 无需登录即可访问：落地页、登录/登出、静态资源
-PUBLIC_PATHS = frozenset({"/", "/login", "/logout", "/favicon.ico"})
+PUBLIC_PATHS = frozenset(
+    {
+        "/",
+        "/login",
+        "/logout",
+        "/favicon.ico",
+        "/auth/google/login",
+        "/auth/google/callback",
+        "/auth/github/login",
+        "/auth/github/callback",
+    }
+)
 PUBLIC_PREFIXES = ("/static/",)
 DEFAULT_REDIRECT = "/chat"
-# 登录表单体积很小，限制上限避免未鉴权接口被塞入大请求体
 MAX_LOGIN_BODY_BYTES = 8 * 1024
 
 app = FastAPI(title=settings.app_title)
@@ -58,7 +80,6 @@ def _safe_redirect(target: str | None) -> str:
 
 
 def _parse_urlencoded(raw: bytes) -> dict[str, str]:
-    """解析表单请求体，避免为登录页引入 python-multipart 依赖。"""
     parsed = parse_qs(raw.decode("utf-8", errors="replace"), keep_blank_values=True)
     return {key: values[0] for key, values in parsed.items() if values}
 
@@ -66,6 +87,55 @@ def _parse_urlencoded(raw: bytes) -> dict[str, str]:
 def _current_user(request: Request) -> str | None:
     token = request.cookies.get(SESSION_COOKIE_NAME, "")
     return verify_session_token(token, settings)
+
+
+def _set_session_cookie(response: Response, username: str) -> None:
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=create_session_token(username, settings),
+        max_age=settings.auth_session_max_age_seconds,
+        httponly=True,
+        samesite="lax",
+        secure=settings.auth_cookie_secure,
+        path="/",
+    )
+
+
+def _login_page_context(
+    *,
+    next_url: str,
+    username: str = "",
+    error: str | None = None,
+) -> dict:
+    providers = list_ready_providers(settings)
+    return {
+        "app_title": settings.app_title,
+        "next_url": next_url,
+        "username": username,
+        "error": error,
+        "auth_local_enabled": settings.auth_local_enabled,
+        "providers": providers,
+    }
+
+
+async def _login_error_response(
+    request: Request,
+    *,
+    next_url: str,
+    error: str,
+    status_code: int = 401,
+    username: str = "",
+) -> Response:
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        _login_page_context(
+            next_url=next_url,
+            username=username,
+            error=error,
+        ),
+        status_code=status_code,
+    )
 
 
 @app.middleware("http")
@@ -112,18 +182,21 @@ async def login_page(
     return templates.TemplateResponse(
         request,
         "login.html",
-        {
-            "app_title": settings.app_title,
-            "next_url": _safe_redirect(next_url),
-            "username": "",
-            "error": None,
-        },
+        _login_page_context(next_url=_safe_redirect(next_url)),
     )
 
 
 @app.post("/login")
 async def login(request: Request) -> Response:
-    """校验凭据并下发签名会话 Cookie。"""
+    """校验本地凭据并下发签名会话 Cookie。"""
+    if not settings.auth_local_enabled:
+        return await _login_error_response(
+            request,
+            next_url=DEFAULT_REDIRECT,
+            error="已关闭本地账号登录，请使用第三方登录。",
+            status_code=403,
+        )
+
     raw = await request.body()
     if len(raw) > MAX_LOGIN_BODY_BYTES:
         return JSONResponse({"error": {"message": "请求体过大。"}}, status_code=413)
@@ -134,25 +207,48 @@ async def login(request: Request) -> Response:
     next_url = _safe_redirect(form.get("next", ""))
 
     if not verify_credentials(username, password, settings):
-        logger.warning("登录失败，username=%s", username)
-        return templates.TemplateResponse(
+        logger.warning("本地登录失败，username=%s", username)
+        return await _login_error_response(
             request,
-            "login.html",
-            {
-                "app_title": settings.app_title,
-                "next_url": next_url,
-                "username": username,
-                "error": "用户名或密码错误。",
-            },
-            status_code=401,
+            next_url=next_url,
+            username=username,
+            error="用户名或密码错误。",
         )
 
-    logger.info("登录成功，username=%s", username)
+    logger.info("本地登录成功，username=%s", username)
     response = RedirectResponse(next_url, status_code=303)
+    _set_session_cookie(response, settings.auth_username)
+    return response
+
+
+@app.get("/auth/{provider_key}/login")
+async def oauth_login(
+    request: Request,
+    provider_key: str,
+    next_url: str = Query(default=DEFAULT_REDIRECT, alias="next"),
+) -> Response:
+    """跳转 Google / GitHub 授权页。"""
+    provider = get_provider(provider_key)
+    if provider is None or not provider_ready(settings, provider):
+        return RedirectResponse(
+            f"/login?next={quote(_safe_redirect(next_url), safe='/')}",
+            status_code=303,
+        )
+
+    safe_next = _safe_redirect(next_url)
+    state = create_oauth_state(safe_next, settings)
+    redirect_uri = build_callback_url(settings, str(request.base_url), provider.key)
+    authorize_url = build_authorize_url(
+        settings,
+        provider,
+        redirect_uri=redirect_uri,
+        state=state,
+    )
+    response = RedirectResponse(authorize_url, status_code=303)
     response.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=create_session_token(settings.auth_username, settings),
-        max_age=settings.auth_session_max_age_seconds,
+        key=OAUTH_STATE_COOKIE_NAME,
+        value=state,
+        max_age=600,
         httponly=True,
         samesite="lax",
         secure=settings.auth_cookie_secure,
@@ -161,11 +257,78 @@ async def login(request: Request) -> Response:
     return response
 
 
+@app.get("/auth/{provider_key}/callback")
+async def oauth_callback(
+    request: Request,
+    provider_key: str,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+) -> Response:
+    """三方回调：校验 state、换 token、写入会话。"""
+    provider = get_provider(provider_key)
+    if provider is None or not provider_ready(settings, provider):
+        return RedirectResponse("/login", status_code=303)
+
+    if error:
+        message = error_description or error
+        logger.warning("%s 授权被拒绝：%s", provider.label, message)
+        return await _login_error_response(
+            request,
+            next_url=DEFAULT_REDIRECT,
+            error=f"{provider.label} 登录失败：{message}",
+        )
+
+    cookie_state = request.cookies.get(OAUTH_STATE_COOKIE_NAME, "")
+    if not state or not cookie_state or not hmac.compare_digest(
+        state.encode("utf-8"),
+        cookie_state.encode("utf-8"),
+    ):
+        return await _login_error_response(
+            request,
+            next_url=DEFAULT_REDIRECT,
+            error="登录状态校验失败，请重试。",
+        )
+
+    next_from_state = verify_oauth_state(state, settings)
+    if next_from_state is None:
+        return await _login_error_response(
+            request,
+            next_url=DEFAULT_REDIRECT,
+            error="登录状态已过期，请重试。",
+        )
+    next_url = _safe_redirect(next_from_state)
+    redirect_uri = build_callback_url(settings, str(request.base_url), provider.key)
+
+    try:
+        username = await exchange_code_for_user(
+            settings,
+            provider,
+            code=code or "",
+            redirect_uri=redirect_uri,
+        )
+    except OAuthError as exc:
+        logger.warning("%s 回调处理失败：%s", provider.label, exc.message)
+        return await _login_error_response(
+            request,
+            next_url=next_url,
+            error=exc.message,
+        )
+
+    logger.info("%s 登录成功，username=%s", provider.label, username)
+    response = RedirectResponse(next_url, status_code=303)
+    _set_session_cookie(response, username)
+    response.delete_cookie(OAUTH_STATE_COOKIE_NAME, path="/")
+    return response
+
+
 @app.post("/logout")
 async def logout() -> Response:
     """清除会话 Cookie。"""
     response = RedirectResponse("/login", status_code=303)
     response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    response.delete_cookie(OAUTH_STATE_COOKIE_NAME, path="/")
     return response
 
 
