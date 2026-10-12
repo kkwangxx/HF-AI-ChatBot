@@ -193,9 +193,12 @@ flake8 .
 {
   "messages": [
     { "role": "user", "content": "你好" }
-  ]
+  ],
+  "model": "claude-sonnet-5[1M]"
 }
 ```
+
+`model` 可选，传入后覆盖 `.env` 里的 `AI_MODEL`；不传则使用默认模型。
 
 ## 更换 AI API
 
